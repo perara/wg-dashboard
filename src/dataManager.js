@@ -42,7 +42,7 @@ async function loadServerConfig(){
 	const peersWithoutVirtualIP = parsed.peers.filter(p => !!p.virtual_ip);
 	const needSave = peersWithoutVirtualIP.length > 0;
 
-	
+
 	if(needSave) {
 		// Save updated config without peers without virtual IP
 		parsed.peers = peersWithoutVirtualIP;

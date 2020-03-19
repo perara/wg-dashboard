@@ -26,7 +26,7 @@ async function checkServerKeys(state){
 
 	state.server_config.public_key = privateKey;
 	state.server_config.private_key = publicKey;
-	await dataManager.saveServerConfig(state);
+	await dataManager.saveServerConfig(state.server_config);
 
 	return state;
 }
