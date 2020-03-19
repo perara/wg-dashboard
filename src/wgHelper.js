@@ -1,57 +1,35 @@
 const dataManager = require("./dataManager");
 const child_process = require("child_process");
+const util = require("util");
+const exec = util.promisify(child_process.exec);
+const spawn = util.promisify(child_process.spawn);
+const config = require("./config");
 
-exports.checkServerKeys = (state, cb) => {
-	if (!state.server_config.private_key || !state.server_config.public_key) {
-		child_process.exec("wg genkey", (err, stdout, stderr) => {
-			if (err || stderr) {
-				console.error(err);
-				console.error("Wireguard is possibly not installed?");
-				process.exit(1);
-			}
-
-			const private_key = stdout.replace(/\n/, "");
-
-			const wgchild = child_process.spawn("wg", ["pubkey"]);
-
-			let pubkey;
-			wgchild.stdout.on("data", data => {
-				pubkey = data.toString();
-			});
-
-			wgchild.stderr.on("data", data => {
-				console.log(data.toString());
-			});
-
-			wgchild.on("close", code => {
-				if (code !== 0) {
-					console.error(`wg pubkey process exited with code ${code}`);
-					process.exit(1);
-				}
-
-				const public_key = pubkey.replace(/\n/, "");
-
-				state.server_config.public_key = public_key;
-				state.server_config.private_key = private_key;
-
-				dataManager.saveServerConfig(state.server_config, err => {
-					if (err) {
-						console.error("could not save private and public keys");
-						process.exit(1);
-						return;
-					}
-
-					cb(state);
-				});
-				// do stuff
-			});
-
-			wgchild.stdin.end(private_key);
-		});
-	} else {
-		cb(state);
+async function ensureInstalled(){
+	const { stderr } = await exec(config.WG);
+	if (stderr) {
+		console.error("Wireguard is possibly not installed?");
+		process.exit(1);
 	}
-};
+
+
+}
+
+async function checkServerKeys(state){
+	if (state.server_config.private_key && state.server_config.public_key) {
+		return state;
+	}
+
+	let result = await exec(config.WG_GENKEY);  // Generate private-key
+	const privateKey = result.stdout.trim();  // Trim silly spaces
+	const publicKey = (await exec(config.WG_PUBKEY(privateKey))).stdout.trim();
+
+	state.server_config.public_key = privateKey;
+	state.server_config.private_key = publicKey;
+	await dataManager.saveServerConfig(state);
+
+	return state;
+}
 
 exports.generateKeyPair = cb => {
 	child_process.exec("wg genkey", (err, stdout, stderr) => {
@@ -82,7 +60,7 @@ exports.generateKeyPair = cb => {
 };
 
 exports.stopWireguard = cb => {
-	child_process.exec("systemctl stop wg-quick@wg0", (err, stdout, stderr) => {
+	child_process.exec(config.WG_DOWN, (err, stdout, stderr) => {
 		if (err || stderr) {
 			cb(err);
 			return;
@@ -94,7 +72,7 @@ exports.stopWireguard = cb => {
 
 exports.startWireguard = cb => {
 	child_process.exec(
-		"systemctl start wg-quick@wg0",
+		config.WG_UP,
 		(err, stdout, stderr) => {
 			if (err || stderr) {
 				cb(err);
@@ -108,7 +86,7 @@ exports.startWireguard = cb => {
 
 exports.wireguardStatus = cb => {
 	child_process.exec(
-		"journalctl -u wg-quick@wg0.service -n 100",
+		config.WG_STATUS,
 		(err, stdout, stderr) => {
 			if (err || stderr) {
 				cb(err);
@@ -135,22 +113,28 @@ exports.getNetworkAdapter = cb => {
 };
 
 exports.getNetworkIP = cb => {
-	child_process.exec(
-		"ifconfig eth0 | grep inet | head -n 1 | xargs | cut -d ' ' -f 2",
-		(err, stdout, stderr) => {
-			if (err || stderr) {
-				cb(err);
-				return;
-			}
 
-			cb(null, stdout.replace(/\n/, ""));
-		}
-	);
+	exports.getNetworkAdapter((interface) => {
+		child_process.exec(
+			"ifconfig " + interface + " | grep inet | head -n 1 | xargs | cut -d ' ' -f 2",
+			(err, stdout, stderr) => {
+				if (err || stderr) {
+					cb(err);
+					return;
+				}
+
+				cb(null, stdout.replace(/\n/, ""));
+			}
+		);
+	});
+
+
+
 };
 
 exports.addPeer = (peer, cb) => {
 	child_process.exec(
-		`wg set wg0 peer ${peer.public_key} allowed-ips ${peer.allowed_ips}/32`,
+		`wg set ${config.ENV.WG_INTERFACE} peer ${peer.public_key} allowed-ips ${peer.allowed_ips}/32`,
 		(err, stdout, stderr) => {
 			if (err || stderr) {
 				cb(err);
@@ -164,7 +148,7 @@ exports.addPeer = (peer, cb) => {
 
 exports.deletePeer = (peer, cb) => {
 	child_process.exec(
-		`wg set wg0 peer ${peer.public_key} remove`,
+		`wg set ${config.ENV.WG_INTERFACE} peer ${peer.public_key} remove`,
 		(err, stdout, stderr) => {
 			if (err || stderr) {
 				cb(err);
@@ -176,75 +160,7 @@ exports.deletePeer = (peer, cb) => {
 	);
 };
 
-exports.makeDashboardPrivate = (state, cb) => {
-	child_process.exec(
-		`ufw delete allow 3000 ; ufw deny in on ${state.server_config
-			.network_adapter || "eth0"} to any port 3000`,
-		(err, stdout, stderr) => {
-			if (err || stderr) {
-				cb(err);
-				return;
-			}
-
-			child_process.exec(
-				"ufw allow in on wg0 to any port 3000",
-				(err, stdout, stderr) => {
-					if (err || stderr) {
-						cb(err);
-						return;
-					}
-
-					cb(null, stdout.replace(/\n/, ""));
-				}
-			);
-		}
-	);
-};
-
-exports.makeDashboardPublic = (state, cb) => {
-	child_process.exec(
-		`ufw allow in on ${state.server_config.network_adapter ||
-			"eth0"} to any port 3000`,
-		(err, stdout, stderr) => {
-			if (err || stderr) {
-				cb(err);
-				return;
-			}
-
-			cb(null, stdout.replace(/\n/, ""));
-		}
-	);
-};
-
-exports.restartCoreDNS = cb => {
-	child_process.exec(`systemctl restart coredns`, (err, stdout, stderr) => {
-		if (err || stderr) {
-			cb(err);
-			return;
-		}
-
-		cb(null);
-	});
-};
-
-exports.enableUFW = (port, cb) => {
-	child_process.exec(`ufw allow ${port}`, (err, stdout, stderr) => {
-		if (err || stderr) {
-			cb(err);
-			return;
-		}
-
-		cb(null);
-	});
-};
-
-exports.disableUFW = (port, cb) => {
-	child_process.exec(`ufw delete allow ${port}`, (err, stdout, stderr) => {
-		if (err || stderr) {
-			cb(err);
-			return;
-		}
-
-		cb(null);
-	});
+module.exports = {
+	checkServerKeys: checkServerKeys,
+	ensureInstalled: ensureInstalled
 };
