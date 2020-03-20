@@ -4,6 +4,7 @@ const util = require("util");
 const exec = util.promisify(child_process.exec);
 const spawn = util.promisify(child_process.spawn);
 const config = require("./config");
+const state = require("./state")();
 
 async function ensureInstalled(){
 	const { stderr } = await exec(config.WG);
@@ -15,51 +16,28 @@ async function ensureInstalled(){
 
 }
 
-async function checkServerKeys(state){
-	if (state.server_config.private_key && state.server_config.public_key) {
-		return state;
-	}
 
-	let result = await exec(config.WG_GENKEY);  // Generate private-key
-	const privateKey = result.stdout.trim();  // Trim silly spaces
-	const publicKey = (await exec(config.WG_PUBKEY(privateKey))).stdout.trim();
-
-	state.server_config.public_key = privateKey;
-	state.server_config.private_key = publicKey;
-	await dataManager.saveServerConfig(state.server_config);
-
-	return state;
+async function generatePublicKey(privateKey){
+	return (await exec(config.WG_PUBKEY(privateKey))).stdout.trim()
 }
 
-exports.generateKeyPair = cb => {
-	child_process.exec("wg genkey", (err, stdout, stderr) => {
-		if (err || stderr) {
-			cb(err);
-			return;
-		}
+async function generatePrivateKey(){
+	let result = await exec(config.WG_GENKEY);  // Generate private-key
+	return result.stdout.trim() // Trim silly spaces
+}
 
-		const private_key = stdout.replace(/\n/, "");
 
-		child_process.exec(
-			`echo "${private_key}" | wg pubkey`,
-			(err, stdout, stderr) => {
-				if (err || stderr) {
-					cb(err);
-					return;
-				}
 
-				const public_key = stdout.replace(/\n/, "");
+async function generateKeyPair(){
+	const privateKey = generatePrivateKey();
+	const publicKey = generatePublicKey(privateKey);
+	return {
+		privateKey: privateKey,
+		publicKey: publicKey
+	}
+}
 
-				cb(null, {
-					private_key: private_key,
-					public_key: public_key,
-				});
-			}
-		);
-	});
-};
-
-exports.stopWireguard = cb => {
+async function stopWireguard(cb){
 	child_process.exec(config.WG_DOWN, (err, stdout, stderr) => {
 		if (err || stderr) {
 			cb(err);
@@ -70,7 +48,7 @@ exports.stopWireguard = cb => {
 	});
 };
 
-exports.startWireguard = cb => {
+async function startWireguard(cb){
 	child_process.exec(
 		config.WG_UP,
 		(err, stdout, stderr) => {
@@ -84,7 +62,7 @@ exports.startWireguard = cb => {
 	);
 };
 
-exports.wireguardStatus = cb => {
+async function wireguardStatus(cb){
 	child_process.exec(
 		config.WG_STATUS,
 		(err, stdout, stderr) => {
@@ -98,7 +76,7 @@ exports.wireguardStatus = cb => {
 	);
 };
 
-exports.getNetworkAdapter = cb => {
+async function getNetworkAdapter(cb){
 	child_process.exec(
 		"ip route | grep default | cut -d ' ' -f 5",
 		(err, stdout, stderr) => {
@@ -112,7 +90,7 @@ exports.getNetworkAdapter = cb => {
 	);
 };
 
-exports.getNetworkIP = cb => {
+async function getNetworkIP(cb){
 
 	exports.getNetworkAdapter((interface) => {
 		child_process.exec(
@@ -132,7 +110,7 @@ exports.getNetworkIP = cb => {
 
 };
 
-exports.addPeer = (peer, cb) => {
+async function addPeer(peer, cb){
 	child_process.exec(
 		`wg set ${config.ENV.WG_INTERFACE} peer ${peer.public_key} allowed-ips ${peer.allowed_ips}/32`,
 		(err, stdout, stderr) => {
@@ -146,7 +124,7 @@ exports.addPeer = (peer, cb) => {
 	);
 };
 
-exports.deletePeer = (peer, cb) => {
+async function deletePeer(peer, cb){
 	child_process.exec(
 		`wg set ${config.ENV.WG_INTERFACE} peer ${peer.public_key} remove`,
 		(err, stdout, stderr) => {
@@ -161,6 +139,15 @@ exports.deletePeer = (peer, cb) => {
 };
 
 module.exports = {
-	checkServerKeys: checkServerKeys,
-	ensureInstalled: ensureInstalled
+	generateKeyPair: generateKeyPair,
+	ensureInstalled: ensureInstalled,
+	deletePeer: deletePeer,
+	addPeer:addPeer,
+	getNetworkIP:getNetworkIP,
+	getNetworkAdapter:getNetworkAdapter,
+	wireguardStatus:wireguardStatus,
+	startWireguard:startWireguard,
+	stopWireguard:stopWireguard,
+	generatePublicKey:generatePublicKey,
+	generatePrivateKey:generatePrivateKey
 };

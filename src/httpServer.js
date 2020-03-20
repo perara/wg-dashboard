@@ -7,24 +7,24 @@ const bcrypt = require("bcrypt");
 const rateLimit = require("express-rate-limit");
 const {cidr} = require("node-cidr");
 const crypto = require("crypto");
-
+const middlewares = require("./middleware");
 const dataManager = require("./dataManager");
 const wireguardHelper = require("./wgHelper");
+const state = require("./state")();
+const config = require("./config");
 
-exports.initServer = (state, cb) => {
+exports.initServer = (cb) => {
 	const app = express();
-	app.use(morgan(state.config.devLogs ? "dev" : "combined"));
+	app.use(morgan(config.ENV.SERVER_DEVELOPMENT ? "dev" : "combined"));
 	app.use("/static", express.static("static"));
-
 	app.use(express.json());
-
+	app.use(bodyParser.urlencoded({ extended: true }));
 	app.use(
 		rateLimit({
 			windowMs: 15 * 60 * 1000, // 15 minutes
 			max: 1000000, // limit each IP to 100 requests per windowMs
 		})
 	);
-
 	app.use(
 		session({
 			secret: crypto.randomBytes(48).toString("base64"),
@@ -41,7 +41,7 @@ exports.initServer = (state, cb) => {
 	});
 
 	app.get("/login", (req, res) => {
-		if (state.server_config.users.length === 0) {
+		if (state.server.users.length === 0) {
 			res.redirect("/createuser");
 			return;
 		}
@@ -55,76 +55,53 @@ exports.initServer = (state, cb) => {
 	});
 
 	app.get("/createuser", (req, res) => {
-		const firstAccount =
-			state.server_config.users.length === 0 ? true : false;
+		const firstAccount = state.server.users.length === 0;
 		res.render("setup_user.njk", {
 			firstAccount: firstAccount,
 		});
 	});
 
-	app.post(
-		"/api/createuser",
-		bodyParser.urlencoded({extended: false}),
-		(req, res) => {
-			if (req.body.username && req.body.password) {
-				if (req.body.password === req.body.password_confirm) {
-					if (
-						state.server_config.users.length === 0 ||
-						req.session.admin
-					) {
-						const saltRounds = 10;
-
-						bcrypt.hash(req.body.password, saltRounds, function(
-							err,
-							hash
-						) {
-							if (err) {
-								res.status(500).send({
-									msg: err,
-								});
-								return;
-							}
-
-							state.server_config.users.push({
-								id: state.server_config.users.length + 1,
-								username: req.body.username,
-								password: hash,
-							});
-
-							dataManager.saveServerConfig(
-								state.server_config,
-								err => {
-									if (err) {
-										res.status(500).send({
-											msg: "COULD_NOT_SAVE_CONFIG",
-										});
-										return;
-									}
-
-									req.session.admin = true;
-									res.status(200).send({
-										msg: "OK",
-									});
-								}
-							);
-						});
-					} else {
-						res.status(401).send({
-							msg: "FIRST_ACCOUNT_ALREADY_EXISTS",
-						});
-					}
-				} else {
-					res.status(500).send({
-						msg: "PASSWORDS_DO_NOT_MATCH",
-					});
-				}
-			} else {
-				res.status(500).send({
-					msg: "USERNAME_AND_OR_PASSWORD_MISSING",
-				});
-			}
+	app.post("/api/createuser", (req, res) => {
+		if (!req.body.username || !req.body.password) {
+			res.status(500).send({
+				msg: "USERNAME_AND_OR_PASSWORD_MISSING",
+			});
+			return;
 		}
-	);
+
+		if (req.body.password !== req.body.password_confirm) {
+			res.status(500).send({
+				msg: "PASSWORDS_DO_NOT_MATCH",
+			});
+			return;
+		}
+
+		if (state.server.users.length !== 0 && !req.session.admin) {
+			res.status(401).send({
+				msg: "FIRST_ACCOUNT_ALREADY_EXISTS",
+			});
+			return;
+		}
+
+		const hash = bcrypt.hashSync(req.body.password, 10);
+
+		state.server.users.push({
+			id: state.server.users.length + 1,
+			username: req.body.username,
+			password: hash,
+		});
+
+		dataManager.saveConfig({
+			server: state.server
+		});
+
+		req.session.admin = true;
+		res.status(200).send({
+			msg: "OK",
+		});
+
+
+	});
 
 	app.post(
 		"/api/login",
@@ -169,21 +146,18 @@ exports.initServer = (state, cb) => {
 
 	// Authentication and Authorization Middleware
 	// all routes below will only be accessible by logged in users
-	app.use((req, res, next) => {
-		if (req.session && req.session.admin) {
-			return next();
-		} else {
-			// check if a single user exists
-			if (state.server_config.users.length === 0) {
-				return res.redirect("/createuser");
-			}
-			return res.redirect("/login");
-		}
-	});
+	app.use(middlewares.ensureAuth);
+
 
 	app.get("/", (req, res) => {
 		res.render("dashboard.njk", {
-			config: state.server_config,
+			server: state.server,
+			wg: Object.keys(state.wg)
+				.filter(key => ["PrivateKey"].includes(key))
+				.reduce((obj, key) => {
+					obj[key] = state.wg[key];
+					return obj;
+				}, {})
 		});
 	});
 
@@ -847,5 +821,5 @@ exports.initServer = (state, cb) => {
 		}
 	});
 
-	app.listen(state.config.port, cb)
+	app.listen(state.server.Port, cb)
 };
