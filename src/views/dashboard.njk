@@ -136,8 +136,8 @@
 									</thead>
 
 									<tbody id="peers">
-										{% for client in config.peers %}
-										<tr class="text-center p-2" id="{{ client.id }}">
+										{% for client in server.Peers %}
+										<tr class="text-center p-2" id="{{ loop.index }}">
 											<td>
 												<div class="my-auto" title="Show QR code for this peer">
 													<button onclick="makeQR({{ client.id }});" class="btn btn-dark btn-sm"
@@ -155,7 +155,7 @@
 												</div>
 											</td>
 											<td>
-												{% if client.active %}
+												{% if client.Active %}
 												<button class="btn btn-success btn-sm activeBtn w-100" title="Peer is active"
 													disabled>
 													<i class="fas fa-check fa-lg"></i>
@@ -170,19 +170,19 @@
 											<td>
 												<div class="md-form m-0" title="Device name">
 													<input type="text" class="form-control" name="device"
-														value="{{ client.device }}" disabled></input>
+														value="{{ client.Device }}" disabled></input>
 												</div>
 											</td>
 											<td>
 												<div class="md-form m-0" title="Public key">
 													<input type="text" class="form-control" name="public_key"
-														value="{{ client.public_key }}" disabled></input>
+														value="{{ client.PublicKey }}" disabled></input>
 												</div>
 											</td>
 											<td>
 												<div class="md-form m-0" title="Virtual IP address">
 													<input type="text" class="form-control" name="virtual_ip"
-														value="{{ client.virtual_ip }}" disabled></input>
+														value="{{ client.Address }}" disabled></input>
 												</div>
 											</td>
 											<td>
@@ -234,14 +234,14 @@
 								<div class="row mb-3">
 									<div class="col-md-4 col-sm-12">
 										<input type="text" id="ip_address" class="form-control"
-											value="{{ config.ip_address }}" disabled>
+											value="{{ server.IPAddress }}" disabled>
 										<label for="ip_address">Public Host / IP <i class="fas fa-info-circle fa-sm"
 												data-toggle="tooltip" data-placement="top"
 												title="IP that is accessible by the outside"></i></label>
 									</div>
 
 									<div class="col-md-4 col-sm-12">
-										<input type="number" id="port" class="form-control" value="{{ config.port }}"
+										<input type="number" id="port" class="form-control" value="{{ wg.ListenPort }}"
 											disabled>
 										<label for="port">Port <i class="fas fa-info-circle fa-sm" data-toggle="tooltip"
 												data-placement="top" title="VPN-Server port"></i></label>
@@ -249,7 +249,7 @@
 
 									<div class="col-md-4 col-sm-12">
 										<input type="text" id="network_adapter" class="form-control"
-											value="{{ config.network_adapter }}" disabled>
+											value="{{ server.Interface }}" disabled>
 										<label for="network_adapter">Network Adapter <i class="fas fa-info-circle fa-sm" data-toggle="tooltip"
 												data-placement="top" title="Network interface on which WireGuard listens for peer connections"></i></label>
 									</div>
@@ -258,21 +258,21 @@
 								<div class="row mb-3">
 									<div class="col-md-4 col-sm-12">
 										<input type="text" id="virtual_ip_address" class="form-control"
-											value="{{ config.virtual_ip_address }}" disabled>
+											value="{{ wg.Address.split("/")[0] }}" disabled>
 										<label for="ip_address">Virtual Address <i class="fas fa-info-circle fa-sm"
 												data-toggle="tooltip" data-placement="top"
 												title="VPN server address in virtual network - This and the CIDR setting will determine the used virtual network range"></i></label>
 									</div>
 
 									<div class="col-md-4 col-sm-12">
-										<input type="number" id="cidr" class="form-control" value="{{ config.cidr }}"
+										<input type="number" id="cidr" class="form-control" value="{{ wg.Address.split("/")[1] }}"
 											disabled>
 										<label for="cidr">CIDR <i class="fas fa-info-circle fa-sm" data-toggle="tooltip"
 												data-placement="top" title="CIDR of the virtual address"></i></label>
 									</div>
 
 									<div class="col-md-4 col-sm-12">
-										<input type="text" id="dns" class="form-control" value="{{ config.dns }}" disabled>
+										<input type="text" id="dns" class="form-control" value="{{ wg.DNS }}" disabled>
 										<label for="dns">DNS <i class="fas fa-info-circle fa-sm" data-toggle="tooltip"
 												data-placement="top" title="DNS server ip that will be used by peers to resolve domain names"></i></label>
 									</div>
@@ -281,7 +281,7 @@
 								<div class="row mb-3">
 									<div class="col-md-8 col-sm-12">
 										<input type="text" id="public_key" class="form-control"
-											value="{{ config.public_key }}" disabled>
+											value="{{ server.PublicKey }}" disabled>
 										<label for="public_key">Public Key <i class="fas fa-info-circle fa-sm"
 												data-toggle="tooltip" data-placement="top"
 												title="Public key of the VPN-Server (unchangeable)."></i> <i
@@ -292,7 +292,7 @@
 
 									<div class="col-md-4 col-sm-12">
 										<input type="text" id="config_path" class="form-control"
-											value="{{ config.config_path }}" disabled>
+											value="{{ server.WGConfigFile }}" disabled>
 										<label for="config_path">Config Path <i class="fas fa-info-circle fa-sm"
 												data-toggle="tooltip" data-placement="top"
 												title="Path to the WireGuard config."></i></label>
@@ -302,7 +302,7 @@
 								<div class="row mb-3">
 									<div class="col-md-4 col-sm-12">
 										<div class="btn-group inputToggleContainer" id="dns_over_tls">
-											{% if config.dns_over_tls %}
+											{% if server.DNSOverTLS %}
 												<button class="btn gradientOff" id="disableTLSoverDNS" disabled>OFF</button>
 												<button class="btn gradientOn" id="enableTLSoverDNS" disabled>ON</button>
 											{% else %}
@@ -321,7 +321,7 @@
 
 									<div class="col-md-4 col-sm-12" style="visibility: {{ 'visible' if config.dns_over_tls else 'hidden' }}" id="tls_servername_input">
 										<input type="text" id="tls_servername" class="form-control"
-											value="{{ config.tls_servername }}" value="{{ config.tls_servername }}" disabled>
+											value="{{ server.TLSServerHost }}" value="{{ server.TLSServerHost }}" disabled>
 										<label for="tls_servername">TLS Servername <i class="fas fa-info-circle fa-sm"
 												data-toggle="tooltip" data-placement="top"
 												title="DNS over TLS requires that a TLS hostname is sent"></i></label>

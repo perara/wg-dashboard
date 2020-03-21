@@ -27,6 +27,5 @@ class State {
 
 
 module.exports = function(){
-	const state = new State().getInstance();
-	return state
+	return new State().getInstance()
 };

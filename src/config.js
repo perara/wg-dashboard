@@ -1,3 +1,5 @@
+const path = require('path');
+const state = require("./state")();
 
 ENV = {
 	WG_CONFIG_FILE: process.env.WG_CONFIG_FILE || "wg0.conf",
@@ -15,16 +17,53 @@ ENV = {
 	SERVER_DNS_TLS: process.env.SERVER_DNS_TLS || false,
 	SERVER_TLS_HOST: process.env.SERVER_TLS_HOST || "",
 	SERVER_NETWORK_ADAPTER: process.env.SERVER_NETWORK_ADAPTER || null,
-	SERVER_DEVELOPMENT: process.env.SERVER_DEVELOPMENT || false
+	SERVER_DEVELOPMENT: process.env.SERVER_DEVELOPMENT || false,
+	LOGGING: process.env.LOGGING || "debug" //"warning"
 };
 
 module.exports = {
 	ENV: ENV,
-	WG: "wg",
-	WG_UP: `wg-quick up ${ENV.WG_INTERFACE}`,
-	WG_DOWN: `wg-quick down ${ENV.WG_INTERFACE}`,
+	UFW: "ufw",
+	WG_ADD_PEER: (peer) => `wg set ${state.server.Interface} peer ${peer.PublicKey} allowed-ips ${peer.Address}/32`,
+	WG: "which wg",
+	/**
+	 * @return {string}
+	 */
+	WG_STRIP: function(){
+		const configFile = state.server.WGConfigFile;
+		const fullPath = path.isAbsolute(configFile) ? configFile : path.resolve(configFile);
+		return `wg-quick strip ${fullPath}`;
+	},
+
+	/**
+	 * @return {string}
+	 */
+	WG_UP: function(configFile){
+		const fullPath = path.isAbsolute(configFile) ? configFile : path.resolve(configFile);
+		return `wg-quick up ${fullPath}`
+	},
+	/**
+	 * @return {string}
+	 */
+	WG_DOWN: function(configFile){
+		const fullPath = path.isAbsolute(configFile) ? configFile : path.resolve(configFile);
+		return `wg-quick down ${ENV.WG_INTERFACE}`
+	},
+
 	WG_STATUS: `wg show`,
 	WG_GENKEY: "wg genkey",
+	/**
+	 * @return {string}
+	 */
+	UFW_ADD: function(port) {
+		return "ufw allow " + port;
+	},
+	/**
+	 * @return {string}
+	 */
+	UFW_DELETE: function(port) {
+		return "ufw delete allow " + port;
+	},
 	/**
 	 * @return {string}
 	 */
